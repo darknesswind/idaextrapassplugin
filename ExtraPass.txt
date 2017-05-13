@@ -2,7 +2,7 @@
 IDA ExtraPass plugin
 =========================================================
 An IDA Pro Win32 target clean up plug-in by Sirmabus.
-Version 3.5
+Version 3.6
 
 --= Introduction =--
 IDA Pro is an amazing reverse engineering and analysis tool but it
@@ -60,7 +60,11 @@ on the first run, then 1000 on the 2nd, and 900 on the third!
 
 
 --= Changes =--
-3.5 - Dec 30, 2015    - Updated to IDA 6.9.
+3.6 - May 2017       - 1) Removed the experimental fix block feature that was disabled anyhow.
+					   2) Added EA64 support.
+					   3) Improved alignment section pass.
+
+3.5 - Dec 30, 2015   - Updated to IDA 6.9.
 
 3.3 - Dec 9, 2014    - Updated to IDA 6.5 or greater.
 

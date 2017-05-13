@@ -17,28 +17,33 @@
     <ClInclude Include="complete_ogg.h">
       <Filter>Resources</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Projects\IDA Pro Work\IDA_Support\SupportLib\Utility.h">
+    <ClInclude Include="..\IDA_Support\IDA_OggPlayer\IdaOgg.h">
       <Filter>Support</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Projects\IDA Pro Work\IDA_Support\IDA_WaitEx\WaitBoxEx.h">
+    <ClInclude Include="..\IDA_Support\IDA_SegmentSelect\SegSelect.h">
       <Filter>Support</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Projects\IDA Pro Work\IDA_Support\IDA_SegmentSelect\SegSelect.h">
+    <ClInclude Include="..\IDA_Support\IDA_WaitEx\WaitBoxEx.h">
       <Filter>Support</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Projects\IDA Pro Work\IDA_Support\IDA_OggPlayer\IdaOgg.h">
+    <ClInclude Include="..\IDA_Support\SupportLib\Utility.h">
       <Filter>Support</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Core.cpp" />
-    <ClCompile Include="Main.cpp" />
-    <ClCompile Include="..\..\Projects\IDA Pro Work\IDA_Support\SupportLib\Utility.cpp">
+    <ClCompile Include="..\IDA_Support\SupportLib\Utility.cpp">
       <Filter>Support</Filter>
     </ClCompile>
+    <ClCompile Include="Main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="ExtraPass.txt">
+      <Filter>Doc</Filter>
+    </Text>
+    <Text Include="TODO.txt">
+      <Filter>Doc</Filter>
+    </Text>
+    <Text Include="ScratchPad.txt">
       <Filter>Doc</Filter>
     </Text>
   </ItemGroup>

@@ -29,4 +29,4 @@
 
 #include <Utility.h>
 
-#define MY_VERSION MAKEWORD(5, 3) // Low, high, convention: 0 to 99
+#define MY_VERSION MAKEWORD(6, 3) // Low, high, convention: 0 to 99
