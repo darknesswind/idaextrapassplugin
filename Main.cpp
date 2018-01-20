@@ -79,7 +79,7 @@ static void showEndStats();
 static void nextState();
 static void processFuncGap(ea_t start, UINT size);
 static bool idaapi isAlignByte(flags_t flags, void *ud);
-static bool idaapi isData(flags_t flags, void *ud);
+static bool idaapi is_data(flags_t flags, void *ud);
 
 // === Data ===
 static TIMESTAMP s_startTime = 0, s_stepTime = 0;
@@ -93,9 +93,9 @@ static BOOL s_isBreak        = FALSE;
 static FILE *s_logFile       = NULL;
 #endif
 static eSTATES s_state       = eSTATE_INIT;
-static int  s_startFuncCount = 0;
+static size_t  s_startFuncCount = 0;
 static int  s_pass1Loops     = 0;
-static UINT s_funcCount      = 0;
+static size_t s_funcCount      = 0;
 static UINT s_funcIndex      = 0;
 //
 static UINT s_unknownDataCount = 0;
@@ -195,12 +195,12 @@ static BOOL checkBreak()
 // Make and address range "unknown" so it can be set with something else
 static void makeUnknown(ea_t start, ea_t end)
 {
-   autoWait();
+   auto_wait();
     //auto_mark_range(s_currentAddress, end, AU_UNK);
     //do_unknown(start, (DOUNK_SIMPLE | DOUNK_NOTRUNC));
 
-    do_unknown_range(start, (end - start), (DOUNK_SIMPLE | DOUNK_NOTRUNC));
-    autoWait();
+   del_items(start, (DELIT_SIMPLE | DELIT_NOTRUNC), (end - start));
+    auto_wait();
 }
 
 // Initialize
@@ -240,33 +240,33 @@ void idaapi plugin_exit()
 }
 
 // Handler for choose code and data segment buttons
-static void idaapi chooseBtnHandler(TView *fields[], int code)
+static void idaapi chooseBtnHandler(TWidget *fields[], int code)
 {
     if (chosen = SegSelect::select(SegSelect::CODE_HINT, "Choose code segments"))
     {
         msg("Chosen: ");
         for (SegSelect::segments::iterator it = chosen->begin(); it != chosen->end(); ++it)
         {
-            char buffer[64];
-            if (get_true_segm_name(*it, buffer, SIZESTR(buffer)) <= 0)
-                strcpy(buffer, "????");
+            qstring buffer;
+            if (get_segm_name(&buffer, *it) <= 0)
+                buffer = "????";
 
             SegSelect::segments::iterator it2 = it; ++it2;
             if (it2 != chosen->end())
-                msg("\"%s\", ", buffer);
+                msg("\"%s\", ", buffer.c_str());
             else
-                msg("\"%s\"", buffer);
+                msg("\"%s\"", buffer.c_str());
         }
         msg("\n");
         WaitBox::processIdaEvents();
     }
 }
 
-static void idaapi doHyperlink(TView *fields[], int code) { open_url(SITE_URL); }
+static void idaapi doHyperlink(TWidget *fields[], int code) { open_url(SITE_URL); }
 
 
 // Plug-in process
-void idaapi plugin_run(int arg)
+bool idaapi plugin_run(size_t arg)
 {
     try
     {
@@ -296,7 +296,7 @@ void idaapi plugin_run(int arg)
 
                     {
                         // To add forum URL to help box
-                        int result = AskUsingForm_c(optionDialog, version, doHyperlink, &optionFlags, &s_audioAlertWhenDone, chooseBtnHandler);
+                        int result = ask_form(optionDialog, version, doHyperlink, &optionFlags, &s_audioAlertWhenDone, chooseBtnHandler);
                         if (!result || (optionFlags == 0))
                         {
                             // User canceled, or no options selected, bail out
@@ -313,7 +313,7 @@ void idaapi plugin_run(int arg)
                     }
 
                     // IDA must be IDLE
-                    if (autoIsOk())
+                    if (auto_is_ok())
                     {
                         // Ask for the log file name once
                         #ifdef LOG_FILE
@@ -352,7 +352,7 @@ void idaapi plugin_run(int arg)
                                 if(segment_t *pSegInfo = getnseg(i))
                                 {
                                 char szName[128] = {0};
-                                get_segm_name(pSegInfo, szName, (sizeof(szName) - 1));
+                                get_visible_segm_name(pSegInfo, szName, (sizeof(szName) - 1));
                                 char szClass[16] = {0};
                                 get_segm_class(pSegInfo, szClass, (sizeof(szClass) - 1));
                                 msg("[%d] \"%s\", \"%s\".\n", i, szName, szClass);
@@ -375,11 +375,11 @@ void idaapi plugin_run(int arg)
                                 {
                                     if (s_thisSeg = getnseg(iIndex))
                                     {
-                                        char sclass[32];
-                                        if (get_segm_class(s_thisSeg, sclass, SIZESTR(sclass)) <= 0)
+                                        qstring sclass;
+                                        if (get_segm_class(&sclass, s_thisSeg) <= 0)
                                             break;
                                         else
-                                        if (strcmp(sclass, "CODE") == 0)
+                                        if (sclass == "CODE")
                                             break;
                                     }
                                 }
@@ -392,8 +392,8 @@ void idaapi plugin_run(int arg)
                             {
                                 WaitBox::show();
                                 WaitBox::updateAndCancelCheck(-1);
-                                s_segStart = s_thisSeg->startEA;
-                                s_segEnd   = s_thisSeg->endEA;
+                                s_segStart = s_thisSeg->start_ea;
+                                s_segEnd   = s_thisSeg->end_ea;
                                 nextState();
                                 break;
                             }
@@ -416,13 +416,13 @@ void idaapi plugin_run(int arg)
                 {
                     s_currentAddress = 0;
 
-                    char name[64];
-                    if (get_true_segm_name(s_thisSeg, name, SIZESTR(name)) <= 0)
-                        strcpy(name, "????");
-                    char sclass[32];
-                    if(get_segm_class(s_thisSeg, sclass, SIZESTR(sclass)) <= 0)
-                        strcpy(sclass, "????");
-                    msg("\nProcessing segment: \"%s\", type: %s, address: " EAFORMAT "-" EAFORMAT ", size: %08X\n\n", name, sclass, s_thisSeg->startEA, s_thisSeg->endEA, s_thisSeg->size());
+                    qstring name;
+                    if (get_segm_name(&name, s_thisSeg) <= 0)
+                        name = "????";
+					qstring sclass;
+                    if(get_segm_class(&sclass, s_thisSeg) <= 0)
+                        sclass = "????";
+                    msg("\nProcessing segment: \"%s\", type: %s, address: " EAFORMAT "-" EAFORMAT ", size: %08X\n\n", name.c_str(), sclass.c_str(), s_thisSeg->start_ea, s_thisSeg->end_ea, s_thisSeg->size());
 
                     // Move to first process state
                     s_startTime = getTimeStamp();
@@ -438,9 +438,9 @@ void idaapi plugin_run(int arg)
                     if (s_currentAddress < s_segEnd)
                     {
                         // Value at this location data?
-                        autoWait();
-                        flags_t flags = get_flags_novalue(s_currentAddress);
-                        if (isData(flags) && !isAlign(flags))
+                        auto_wait();
+                        flags_t flags = get_flags(s_currentAddress);
+                        if (is_data(flags) && !is_align(flags))
                         {
                             #ifdef PASS1_DEBUG
                             msg(EAFORMAT",  F: %08X data\n", s_currentAddress, flags);
@@ -474,12 +474,13 @@ void idaapi plugin_run(int arg)
                                 if (eaDRef != BADADDR)
                                 {
                                     // Ref part an offset?
-                                    flags_t flags2 = get_flags_novalue(eaDRef);
-                                    if (isCode(flags2) && isOff1(flags2))
+                                    flags_t flags2 = get_flags(eaDRef);
+                                    if (is_code(flags2) && is_off1(flags2))
                                     {
                                         // Decide instruction to global "cmd" struct
                                         BOOL bIsByteAccess = FALSE;
-                                        if (decode_insn(eaDRef))
+										insn_t cmd;
+                                        if (decode_insn(&cmd, eaDRef))
                                         {
                                             switch (cmd.itype)
                                             {
@@ -496,7 +497,7 @@ void idaapi plugin_run(int arg)
 
                                                 case NN_mov:
                                                 {
-                                                    if ((cmd.Operands[0].type == o_reg) && (cmd.Operands[1].dtyp == dt_byte))
+                                                    if ((cmd.ops[0].type == o_reg) && (cmd.ops[1].dtype == dt_byte))
                                                     {
                                                         #ifdef PASS1_DEBUG
                                                         msg(EAFORMAT" mov\n", s_currentAddress);
@@ -523,8 +524,8 @@ void idaapi plugin_run(int arg)
                                             makeUnknown(s_currentAddress, end);
                                             // Step through making the array, and any bad size a byte
                                             //for(ea_t i = s_eaCurrentAddress; i < eaEnd; i++){ doByte(i, 1); }
-                                            doByte(s_currentAddress, (end - s_currentAddress));
-                                            autoWait();
+											create_byte(s_currentAddress, (end - s_currentAddress));
+                                            auto_wait();
                                             bSkip = TRUE;
                                         }
                                     }
@@ -535,7 +536,7 @@ void idaapi plugin_run(int arg)
                             if (!bSkip)
                             {
                                 #ifdef PASS1_DEBUG
-                                msg(EAFORMAT" "EAFORMAT" %02X unknown\n", s_currentAddress, end, get_flags_novalue(s_currentAddress));
+                                msg(EAFORMAT" "EAFORMAT" %02X unknown\n", s_currentAddress, end, get_flags(s_currentAddress));
                                 #endif
                                 makeUnknown(s_currentAddress, end);
                                 s_unknownDataCount++;
@@ -547,14 +548,14 @@ void idaapi plugin_run(int arg)
                             s_currentAddress = end;
                             if (s_currentAddress < s_segEnd)
                             {
-                                s_currentAddress = nextthat(s_currentAddress, s_segEnd, isData, NULL);
+                                s_currentAddress = next_that(s_currentAddress, s_segEnd, is_data, NULL);
                                 break;
                             }
                         }
                         else
                         {
                             // Advance to next data value, or the end which ever comes first
-                            s_currentAddress = nextthat(s_currentAddress, s_segEnd, isData, NULL);
+                            s_currentAddress = next_that(s_currentAddress, s_segEnd, is_data, NULL);
                             break;
                         }
                     }
@@ -581,7 +582,7 @@ void idaapi plugin_run(int arg)
                 //#define PASS2_DEBUG
                 case eSTATE_PASS_2:
                 {
-                    #define NEXT(_Here, _Limit) nextthat(_Here, _Limit, isAlignByte, NULL)
+                    #define NEXT(_Here, _Limit) next_that(_Here, _Limit, isAlignByte, NULL)
 
                     // Still inside this code segment?
                     ea_t end = s_segEnd;
@@ -589,7 +590,7 @@ void idaapi plugin_run(int arg)
                     {
                         // Look for next unknown alignment type byte
                         // Will return BADADDR if none found which will catch in the endEA test
-                        flags_t flags = getFlags(s_currentAddress);
+                        flags_t flags = get_full_flags(s_currentAddress);
                         if (!isAlignByte(flags, NULL))
                             s_currentAddress = NEXT(s_currentAddress, s_segEnd);
                         if (s_currentAddress < end)
@@ -602,13 +603,13 @@ void idaapi plugin_run(int arg)
                                 #ifdef PASS2_DEBUG
                                 //msg(EAFORMAT", F: 0x%X *** Align test in array #1 ***\n", s_currentAddress, flags);
                                 #endif
-                                s_currentAddress = s_lastAddress = nextaddr(s_currentAddress);
+                                s_currentAddress = s_lastAddress = next_addr(s_currentAddress);
                                 break;
                             }
 
                             #ifdef PASS2_DEBUG
                             //msg(EAFORMAT" Start.\n", startAddress);
-                            //msg(EAFORMAT", F: %08X.\n", startAddress, get_flags_novalue(startAddress));
+                            //msg(EAFORMAT", F: %08X.\n", startAddress, get_flags(startAddress));
                             #endif
                             s_lastAddress = s_currentAddress;
 
@@ -619,10 +620,10 @@ void idaapi plugin_run(int arg)
                             while (TRUE)
                             {
                                 // Next byte
-                                s_currentAddress = nextaddr(s_currentAddress);
+                                s_currentAddress = next_addr(s_currentAddress);
                                 #ifdef PASS2_DEBUG
                                 //msg(EAFORMAT" Next.\n", s_currentAddress);
-                                //msg(EAFORMAT", F: %08X.\n", s_currentAddress, get_flags_novalue(s_currentAddress));
+                                //msg(EAFORMAT", F: %08X.\n", s_currentAddress, get_flags(s_currentAddress));
                                 #endif
 
                                 if (s_currentAddress < end)
@@ -631,9 +632,9 @@ void idaapi plugin_run(int arg)
                                     if (s_currentAddress <= s_lastAddress)
                                     {
                                         #ifdef PASS2_DEBUG
-                                        //msg(EAFORMAT", F: %08X *** Align test in array #2 ***\n", startAddress, get_flags_novalue(s_currentAddress));
+                                        //msg(EAFORMAT", F: %08X *** Align test in array #2 ***\n", startAddress, get_flags(s_currentAddress));
                                         #endif
-                                        s_currentAddress = s_lastAddress = nextaddr(s_currentAddress);
+                                        s_currentAddress = s_lastAddress = next_addr(s_currentAddress);
                                         break;
                                     }
                                     s_lastAddress = s_currentAddress;
@@ -709,7 +710,7 @@ void idaapi plugin_run(int arg)
                                         if (ref != BADADDR)
                                         {
                                             // If it the ref points to code assume code is just broken here
-                                            if (isCode(get_flags_novalue(ref)))
+                                            if (is_code(get_flags(ref)))
                                             {
                                                 //msg(EAFORMAT " dref from end %08X.\n", eaRef, eaEndAddress);
                                                 hasRef = TRUE;
@@ -720,7 +721,7 @@ void idaapi plugin_run(int arg)
                                             ref = get_first_dref_to(endAddress);
                                             if (ref != BADADDR)
                                             {
-                                                if (isCode(get_flags_novalue(ref)))
+                                                if (is_code(get_flags(ref)))
                                                 {
                                                     //msg(EAFORMAT " dref to end %08X.\n", eaRef, eaEndAddress);
                                                     hasRef = TRUE;
@@ -739,15 +740,15 @@ void idaapi plugin_run(int arg)
                                 }
 
                                 // If it's not an align make block already try to fix it
-								flags_t flags = get_flags_novalue(startAddress);
+								flags_t flags = get_flags(startAddress);
 								UINT itemSize = get_item_size(startAddress);
-								if (!isAlign(flags) || (itemSize != alignByteCount))
+								if (!is_align(flags) || (itemSize != alignByteCount))
 								{
 									makeUnknown(startAddress, ((startAddress + alignByteCount) - 1));
-									BOOL result = doAlign(startAddress, alignByteCount, 0);
-									autoWait();
+									BOOL result = create_align(startAddress, alignByteCount, 0);
+									auto_wait();
 									#ifdef PASS2_DEBUG
-									msg(EAFORMAT" %d %d  %d %d %d DO ALIGN.\n", startAddress, alignByteCount, result, isAlign(flags), itemSize, get_item_size(startAddress));
+									msg(EAFORMAT" %d %d  %d %d %d DO ALIGN.\n", startAddress, alignByteCount, result, is_align(flags), itemSize, get_item_size(startAddress));
 									#endif
 									if (result)
 									{
@@ -806,9 +807,9 @@ void idaapi plugin_run(int arg)
                             s_lastAddress = s_currentAddress;
 
                             // Try to make code of it
-                            autoWait();
+                            auto_wait();
                             int result = create_insn(s_currentAddress);
-                            autoWait();
+                            auto_wait();
                             #ifdef PASS3_DEBUG
                             msg(EAFORMAT" DO CODE %d\n", s_currentAddress, result);
                             #endif
@@ -843,9 +844,9 @@ void idaapi plugin_run(int arg)
                         func_t *f1 = getn_func(s_funcIndex + 0);
                         func_t *f2 = getn_func(s_funcIndex + 1);
 
-                        UINT gapSize = (f2->startEA - f1->endEA);
+                        UINT gapSize = (f2->start_ea - f1->end_ea);
                         if (gapSize > 0)
-                            processFuncGap(f1->endEA, gapSize);
+                            processFuncGap(f1->end_ea, gapSize);
 
                         s_funcIndex++;
                     }
@@ -886,6 +887,7 @@ void idaapi plugin_run(int arg)
         BailOut:;
     }
     CATCH()
+	return true;
 }
 
 
@@ -898,7 +900,7 @@ static void nextState()
 		// Top of code seg
 		s_currentAddress = s_lastAddress = s_segStart;
 		//SafeJumpTo(s_uCurrentAddress);
-		autoWait();
+		auto_wait();
 	}
 
 	// Logic
@@ -1051,13 +1053,13 @@ static void nextState()
 		case eSTATE_FINISH:
 		{
 			// If there are more code segments to process, do next
-			autoWait();
+			auto_wait();
             if (chosen && !chosen->empty())
 			{
 				s_thisSeg = chosen->back();
                 chosen->pop_back();
-				s_segStart = s_thisSeg->startEA;
-				s_segEnd   = s_thisSeg->endEA;
+				s_segStart = s_thisSeg->start_ea;
+				s_segEnd   = s_thisSeg->end_ea;
 				s_state = eSTATE_START;
 			}
 			else
@@ -1136,9 +1138,9 @@ static bool idaapi isAlignByte(flags_t flags, void *ud)
 }
 
 // Return if flag is data type we want to convert to unknown bytes
-static bool idaapi isData(flags_t flags, void *ud)
+static bool idaapi is_data(flags_t flags, void *ud)
 {
-	return(!isAlign(flags) && isData(flags));
+	return(!is_align(flags) && is_data(flags));
 }
 
 
@@ -1150,7 +1152,7 @@ static BOOL tryFunction(ea_t codeStart, ea_t codeEnd, ea_t &current)
 {
 	BOOL result = FALSE;
 
-	autoWait();
+	auto_wait();
 	#ifdef LOG_FILE
 	Log(s_logFile, EAFORMAT " " EAFORMAT " Trying function.\n", codeStart, current);
 	#endif
@@ -1162,23 +1164,23 @@ static BOOL tryFunction(ea_t codeStart, ea_t codeEnd, ea_t &current)
 	if(func_t *f = get_fchunk(codeStart))
 	{
   		#ifdef LOG_FILE
-        Log(s_logFile, "  " EAFORMAT " " EAFORMAT " " EAFORMAT " F: %08X already function.\n", f->endEA, f->startEA, codeStart, get_flags_novalue(codeStart));
+        Log(s_logFile, "  " EAFORMAT " " EAFORMAT " " EAFORMAT " F: %08X already function.\n", f->end_ea, f->start_ea, codeStart, get_flags(codeStart));
 		#endif
-		//msg("  " EAFORMAT " " EAFORMAT " " EAFORMAT " F: %08X already a function.\n", f->endEA, f->startEA, codeStart, getFlags(codeStart));
-		current = prev_head(f->endEA, codeStart); // Advance to end of the function -1 location (for a follow up "next_head()")
+		//msg("  " EAFORMAT " " EAFORMAT " " EAFORMAT " F: %08X already a function.\n", f->end_ea, f->start_ea, codeStart, get_full_flags(codeStart));
+		current = prev_head(f->end_ea, codeStart); // Advance to end of the function -1 location (for a follow up "next_head()")
 		result = TRUE;
 	}
 	else
 	{
 		// Try function here
-		//flags_t flags = getFlags(codeEnd);
+		//flags_t flags = get_full_flags(codeEnd);
 		//flags = flags;
 		//if (add_func(codeStart, codeEnd /*BADADDR*/))
 
 		if(add_func(codeStart, BADADDR))
 		{
 			// Wait till IDA is done possibly creating the function, then get it's info
-			autoWait();
+			auto_wait();
 			if(func_t *f = get_fchunk(codeStart)) // get_func
 			{
 				#ifdef LOG_FILE
@@ -1189,12 +1191,13 @@ static BOOL tryFunction(ea_t codeStart, ea_t codeEnd, ea_t &current)
 				#endif
 
 				// Look at function tail instruction
-				autoWait();
+				auto_wait();
 				BOOL isExpected = FALSE;
-				ea_t tailEa = prev_head(f->endEA, codeStart);
+				ea_t tailEa = prev_head(f->end_ea, codeStart);
 				if(tailEa != BADADDR)
 				{
-					if(decode_insn(tailEa))
+					insn_t cmd;
+					if(decode_insn(&cmd, tailEa))
 					{
 						switch(cmd.itype)
 						{
@@ -1227,13 +1230,13 @@ static BOOL tryFunction(ea_t codeStart, ea_t codeEnd, ea_t &current)
 							{
 								// Try to make it an align
                                 makeUnknown(tailEa, (tailEa + 1));
-								if(!doAlign(tailEa, 1, 0))
+								if(!create_align(tailEa, 1, 0))
 								{
 									// If it fails, make it an instruction at least
 									//msg("  " EAFORMAT " ALIGN fail.\n", tailEA);
 									create_insn(tailEa);
 								}
-                                autoWait();
+                                auto_wait();
 								//msg("  " EAFORMAT " ALIGN\n", tailEA);
 								isExpected = TRUE;
 							}
@@ -1246,7 +1249,7 @@ static BOOL tryFunction(ea_t codeStart, ea_t codeEnd, ea_t &current)
 								if(eaCRef != BADADDR)
 								{
                                     qstring str;
-                                    if (get_true_name(&str, eaCRef) > 0)
+                                    if (get_name(&str, eaCRef) > 0)
                                     {
                                         char name[MAXNAMELEN + 1];
                                         strncpy(name, str.c_str(), SIZESTR(name));
@@ -1291,13 +1294,10 @@ static BOOL tryFunction(ea_t codeStart, ea_t codeEnd, ea_t &current)
 
 					if(!isExpected)
 					{
-                        char name[MAXNAMELEN + 1];
-                        qstring str;
-                        if (get_true_name(&str, f->startEA) > 0)
-                            strncpy(name, str.c_str(), SIZESTR(name));
-                        else
-                            memcpy(name, "unknown", sizeof("unknown"));
-						msg(EAFORMAT " \"%s\" problem? <click me>\n", tailEa, name);
+                        qstring name;
+                        if (get_name(&name, f->start_ea) <= 0)
+                            name = "unknown";
+						msg(EAFORMAT " \"%s\" problem? <click me>\n", tailEa, name.c_str());
 						//msg("  T: %d\n", cmd.itype);
 
 						#ifdef LOG_FILE
@@ -1332,7 +1332,7 @@ static void processFuncGap(ea_t start, UINT size)
 	#endif
 
 	// Walk backwards at the end to trim alignments
-	autoWait();
+	auto_wait();
 	ea_t ea = prev_head(end, start);
 	if (ea == BADADDR)
 		return;
@@ -1340,8 +1340,8 @@ static void processFuncGap(ea_t start, UINT size)
 	{
 		while (ea >= start)
 		{
-			flags_t flags = getFlags(ea);
-			if (isAlignByte(flags, NULL) || isAlign(flags))
+			flags_t flags = get_full_flags(ea);
+			if (isAlignByte(flags, NULL) || is_align(flags))
 			{
 				ea = prev_head(ea, start);
 				if (ea == BADADDR)
@@ -1364,7 +1364,7 @@ static void processFuncGap(ea_t start, UINT size)
     while(ea < end)
     {
 		// Info flags for this address
-        flags_t flags = getFlags(ea);
+        flags_t flags = get_full_flags(ea);
 		#ifdef LOG_FILE
 		Log(s_logFile, "  C: " EAFORMAT ", F: %08X, \"%s\".\n", ea, flags, getDisasmText(ea));
 		#endif
@@ -1392,7 +1392,7 @@ static void processFuncGap(ea_t start, UINT size)
 
 		// Skip over "align" blocks.
 		// #1 we will typically see more of these then anything else
-		if(isAlignByte(flags, NULL) || isAlign(flags))
+		if(isAlignByte(flags, NULL) || is_align(flags))
 		{
 			// Function between code start?
 			if(codeStart != BADADDR)
@@ -1410,7 +1410,7 @@ static void processFuncGap(ea_t start, UINT size)
 		}
 		else
 		// #2 case, we'll typically see data
-		if(isData(flags))
+		if(is_data(flags))
 		{
 			// Function between code start?
 			if(codeStart != BADADDR)
@@ -1428,7 +1428,7 @@ static void processFuncGap(ea_t start, UINT size)
 		}
 		else
 		// Hit some code?
-		if(isCode(flags))
+		if(is_code(flags))
 		{
 			// Yes, mark the start of a possible code block
 			if(codeStart == BADADDR)
@@ -1448,7 +1448,7 @@ static void processFuncGap(ea_t start, UINT size)
 		else
 		// Undefined?
 		// Usually 0xCC align bytes
-		if(isUnknown(flags))
+		if(is_unknown(flags))
 		{
 			#ifdef LOG_FILE
 			Log(s_logFile, "  C: " EAFORMAT " , Unknown type.\n", ea);
@@ -1470,7 +1470,7 @@ static void processFuncGap(ea_t start, UINT size)
 		}
 
 		// Next item
-		autoWait();
+		auto_wait();
 		ea_t nextEa = BADADDR;
 		if(ea != BADADDR)
 		{
@@ -1491,7 +1491,7 @@ static void processFuncGap(ea_t start, UINT size)
 				msg(">" EAFORMAT " Trying function #4\n", codeStart);
 				#endif
 				tryFunction(codeStart, end, ea);
-				autoWait();
+				auto_wait();
 			}
 
 			#ifdef LOG_FILE
